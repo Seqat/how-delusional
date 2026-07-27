@@ -1,0 +1,24 @@
+{
+  "name": "how-delusional-this-job-offer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A satirical-but-statistically-honest estimator of how unrealistic a job posting's combined requirements are.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.1",
+    "@types/node": "^22.5.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "preact": "^10.24.0"
+  }
+}
