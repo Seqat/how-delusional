@@ -301,3 +301,58 @@ describe('share-link round-trip (via engine input shape)', () => {
   });
 });
 
+describe('compute — implication subsumption & disjunctive categories', () => {
+  it('subsumes Bachelor when Master degree is also selected', () => {
+    const r = compute({
+      selectedIds: ['edu_master', 'edu_bachelor'],
+      experienceYears: 0,
+      ageMin: 0,
+      ageMax: 0,
+    });
+    // Master's probability is 0.045. Bachelor's (0.21) is subsumed and omitted.
+    expect(r.fraction).toBeCloseTo(0.045, 4);
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('edu_master');
+  });
+
+  it('subsumes English B2 when English C1 is also selected', () => {
+    const r = compute({
+      selectedIds: ['lang_en_c1', 'lang_en_b2'],
+      experienceYears: 0,
+      ageMin: 0,
+      ageMax: 0,
+    });
+    // C1 is 0.022. B2 (0.06) is subsumed.
+    expect(r.fraction).toBeCloseTo(0.022, 4);
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('lang_en_c1');
+  });
+
+  it('subsumes React & JS when Next.js is selected', () => {
+    const r = compute({
+      selectedIds: ['skill_nextjs', 'skill_react', 'skill_javascript'],
+      experienceYears: 0,
+      ageMin: 0,
+      ageMax: 0,
+    });
+    // Next.js probability is 0.0015. React and JS are subsumed.
+    expect(r.fraction).toBeCloseTo(0.0015, 4);
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('skill_nextjs');
+  });
+
+  it('combines multiple locations as OR (disjunction)', () => {
+    // İstanbul (0.20) + Ankara (0.07) = 0.27
+    const r = compute({
+      selectedIds: ['loc_istanbul', 'loc_ankara'],
+      experienceYears: 0,
+      ageMin: 0,
+      ageMax: 0,
+    });
+    expect(r.fraction).toBeCloseTo(0.27, 4);
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('loc_disjunctive_group');
+  });
+});
+
+

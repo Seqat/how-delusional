@@ -21,6 +21,7 @@ import {
   DEFAULT_AGE,
 } from '../data/population';
 import { CORRELATIONS } from '../data/correlations';
+import { IMPLICATIONS } from '../data/implications';
 
 export interface EngineInput {
   /** IDs of selected criteria from population.ts (education, skills, etc.). */
@@ -57,6 +58,23 @@ export interface EngineResult {
 }
 
 const EXPERIENCE_SYNTHETIC_ID = 'experience_years';
+
+/**
+ * Filter out criteria that are implied/subsumed by other selected criteria.
+ * e.g., edu_master implies edu_bachelor; lang_en_c1 implies lang_en_b2.
+ */
+export function filterSubsumedCriteria(selectedIds: string[]): string[] {
+  const implied = new Set<string>();
+  for (const id of selectedIds) {
+    const list = IMPLICATIONS[id];
+    if (list) {
+      for (const item of list) {
+        implied.add(item);
+      }
+    }
+  }
+  return selectedIds.filter((id) => !implied.has(id));
+}
 
 /**
  * Cumulative probability of having AT LEAST `years` years of experience,
@@ -153,7 +171,9 @@ export function delusionScoreFromFraction(fraction: number): number {
 /** Pure engine: input → result. No side effects. */
 export function compute(input: EngineInput): EngineResult {
   const contradictions: string[] = [];
-  const selectedIds = input.selectedIds.filter((id) => CRITERIA_BY_ID[id]);
+  const rawSelectedIds = input.selectedIds.filter((id) => CRITERIA_BY_ID[id]);
+  // Pre-pass: Filter out subsumed/implied criteria (e.g. Bachelor's when Master's is selected)
+  const selectedIds = filterSubsumedCriteria(rawSelectedIds);
 
   // --- Step 1: handle experience + age gate BEFORE building the pool. ------
   let impossible = false;
@@ -208,37 +228,83 @@ export function compute(input: EngineInput): EngineResult {
     }
   }
 
-  // --- Step 2: build base probabilities for all selected criteria ---------
-  // We include the synthetic experience criterion so it shows up in the
-  // breakdown and gets correlation-lifted too.
+  // --- Step 2: process disjunctive categories (Location & Field of Study) ---
+  const activeIdsForCalculation: string[] = [];
   const baseProbById = new Map<string, number>();
   const labelById = new Map<string, string>();
 
-  for (const id of selectedIds) {
-    const c: Criterion = CRITERIA_BY_ID[id];
+  // Process disjunctive group: Location (loc_)
+  const locIds = selectedIds.filter((id) => id.startsWith('loc_'));
+  const nonLocIds = selectedIds.filter((id) => !id.startsWith('loc_'));
+
+  if (locIds.length > 1) {
+    const combinedProb = Math.min(
+      1,
+      locIds.reduce((sum, id) => sum + CRITERIA_BY_ID[id].probability, 0),
+    );
+    const combinedLabel = `Location: ${locIds.map((id) => CRITERIA_BY_ID[id].label.en).join(' OR ')}`;
+    const syntheticLocId = 'loc_disjunctive_group';
+    baseProbById.set(syntheticLocId, combinedProb);
+    labelById.set(syntheticLocId, combinedLabel);
+    activeIdsForCalculation.push(syntheticLocId);
+  } else if (locIds.length === 1) {
+    const id = locIds[0];
+    const c = CRITERIA_BY_ID[id];
     baseProbById.set(id, c.probability);
     labelById.set(id, c.label.en);
+    activeIdsForCalculation.push(id);
   }
+
+  // Process disjunctive group: Field of Study (field_)
+  const fieldIds = nonLocIds.filter((id) => id.startsWith('field_'));
+  const remainingIds = nonLocIds.filter((id) => !id.startsWith('field_'));
+
+  if (fieldIds.length > 1) {
+    const combinedProb = Math.min(
+      1,
+      fieldIds.reduce((sum, id) => sum + CRITERIA_BY_ID[id].probability, 0),
+    );
+    const combinedLabel = `Field: ${fieldIds.map((id) => CRITERIA_BY_ID[id].label.en).join(' OR ')}`;
+    const syntheticFieldId = 'field_disjunctive_group';
+    baseProbById.set(syntheticFieldId, combinedProb);
+    labelById.set(syntheticFieldId, combinedLabel);
+    activeIdsForCalculation.push(syntheticFieldId);
+  } else if (fieldIds.length === 1) {
+    const id = fieldIds[0];
+    const c = CRITERIA_BY_ID[id];
+    baseProbById.set(id, c.probability);
+    labelById.set(id, c.label.en);
+    activeIdsForCalculation.push(id);
+  }
+
+  // Add all remaining non-disjunctive criteria
+  for (const id of remainingIds) {
+    const c = CRITERIA_BY_ID[id];
+    baseProbById.set(id, c.probability);
+    labelById.set(id, c.label.en);
+    activeIdsForCalculation.push(id);
+  }
+
   if (input.experienceYears > 0) {
     baseProbById.set(EXPERIENCE_SYNTHETIC_ID, experienceProb);
     labelById.set(
       EXPERIENCE_SYNTHETIC_ID,
       `${input.experienceYears} years of experience`,
     );
+    activeIdsForCalculation.push(EXPERIENCE_SYNTHETIC_ID);
   }
 
   // --- Step 3: apply correlation lifts ------------------------------------
-  const activeIds = new Set<string>([
-    ...selectedIds,
+  // We pass rawSelectedIds to correlation lookup so that underlying given IDs
+  // (e.g. field_cs) still trigger correlation lifts for their targets!
+  const activeIdsForCorrelations = new Set<string>([
+    ...rawSelectedIds,
     ...(input.experienceYears > 0 ? [EXPERIENCE_SYNTHETIC_ID] : []),
   ]);
-  const adjusted = applyCorrelations(baseProbById, activeIds);
+  const adjusted = applyCorrelations(baseProbById, activeIdsForCorrelations);
 
   // --- Step 4: build the waterfall sorted by damage (most restrictive first) --
-  const activeList = [
-    ...selectedIds,
-    ...(input.experienceYears > 0 ? [EXPERIENCE_SYNTHETIC_ID] : []),
-  ];
+  const activeList = [...activeIdsForCalculation];
 
   // Sort criteria so that the most damaging / selective filter comes first
   activeList.sort((a, b) => {
