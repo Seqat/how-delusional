@@ -11,6 +11,8 @@ A satirical-but-statistically-honest single-page web app. Paste the requirements
 - **Vite + TypeScript + Preact** (via `@preact/preset-vite`)
 - Single hand-written `src/styles.css` using CSS custom properties
 - Hand-drawn inline SVG for the gauge and waterfall chart (no chart library)
+- **Job Posting Parser**: Pure client-side regex and alias dictionary for pasting raw job descriptions
+- **HTML5 Canvas Card Export**: Generates downloadable/shareable PNG summary cards directly in browser
 - Static-only — no backend, no database, no auth, no analytics, no cookie banner
 - All state in Preact hooks (`useState`/`useMemo`); no global state library
 - Share-by-URL (criteria serialized as base64 JSON in the URL hash)
@@ -92,6 +94,15 @@ Each requirement contributes a row showing the pool size before and after that r
 
 ---
 
+## How the job posting parser works
+
+The parser lives in [`src/lib/parser.ts`](src/lib/parser.ts). Users can paste any raw job posting text, and the parser automatically extracts:
+1. **Criteria & Skills**: Matched via alias mappings (`ALIAS_MAP`) and label string search (e.g. "K8s" → `skill_kubernetes`, "Lisans" → `edu_bachelor`).
+2. **Years of Experience**: Extracted via Regex patterns (e.g. `5+ years`, `3-5 yıl`, `min 4 yıl tecrübe`).
+3. **Age Constraints**: Extracted via Regex patterns (e.g. `max 25 yaş`, `maximum age 28`).
+
+---
+
 ## Where the math is deliberately approximate
 
 - **Independence assumption (post-lift):** After applying correlations, we still assume criteria are independent. They aren't. This is a known limitation.
@@ -128,15 +139,10 @@ All UI strings live in `src/i18n/en.ts` and `src/i18n/tr.ts`. The default langua
 
 ---
 
-## Share-by-URL
+## Share-by-URL & Image Export
 
-The "Copy share link" button serializes the current criteria into a compact base64 JSON in the URL hash:
-
-```
-https://<user>.github.io/<repo>/#W1siZWR1X2JhY2hlbG9yIl0sNSwwLDBd
-```
-
-On page load, the hash is decoded and the form is restored. Malformed hashes silently fall back to empty state.
+- **URL Sharing**: The "Copy share link" button serializes the current criteria into a compact base64 JSON in the URL hash.
+- **PNG Card Export**: Powered by [`src/lib/cardExport.ts`](src/lib/cardExport.ts) and [`src/components/CardModal.tsx`](src/components/CardModal.tsx), users can render and download a stylized PNG image card of the Delusion Score to share on social media.
 
 ---
 
@@ -149,6 +155,7 @@ On page load, the hash is decoded and the form is restored. Malformed hashes sil
 ├── tsconfig.json
 ├── vite.config.ts
 ├── vitest.config.ts
+├── LICENSE                          # MIT License
 ├── .github/workflows/deploy.yml
 ├── README.md
 └── src/
@@ -157,9 +164,13 @@ On page load, the hash is decoded and the form is restored. Malformed hashes sil
     ├── styles.css                   # single hand-written stylesheet
     ├── data/
     │   ├── population.ts            # ALL numbers live here
-    │   └── correlations.ts          # sparse lift table
+    │   ├── correlations.ts          # sparse lift table
+    │   ├── implications.ts          # satirical advice & warnings
+    │   └── presets.ts               # pre-configured sample job postings
     ├── lib/
     │   ├── engine.ts                # pure calculation core
+    │   ├── parser.ts                # raw text job posting parser
+    │   ├── cardExport.ts            # HTML5 Canvas image card exporter
     │   └── share.ts                 # URL hash codec
     ├── i18n/
     │   ├── index.ts                 # lang detection
@@ -168,9 +179,12 @@ On page load, the hash is decoded and the form is restored. Malformed hashes sil
     ├── components/
     │   ├── InputPanel.tsx
     │   ├── ResultPanel.tsx
+    │   ├── CardModal.tsx            # export card preview & download modal
     │   ├── Gauge.tsx                # hand-drawn SVG arc gauge
     │   └── BreakdownChart.tsx       # hand-drawn SVG waterfall
-    └── engine.test.ts               # vitest unit tests
+    ├── engine.test.ts               # vitest calculation engine tests
+    ├── parser.test.ts               # vitest text parser tests
+    └── share.test.ts                # vitest URL hash tests
 ```
 
 ---
@@ -185,6 +199,6 @@ The build uses `base: './'` in `vite.config.ts` so it works on both root domains
 
 ## License
 
-MIT. Use it, fork it, fix the numbers when they're wrong.
+[MIT License](LICENSE). Use it, fork it, fix the numbers when they're wrong.
 
 The numbers in `population.ts` are the most likely thing to be wrong. The math is honest about its own approximation — see the "Where the math is deliberately approximate" section above.
