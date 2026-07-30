@@ -101,8 +101,9 @@ export function App(): JSX.Element {
       experienceYears,
       ageMin,
       ageMax,
+      lang,
     }),
-    [selected, experienceYears, ageMin, ageMax],
+    [selected, experienceYears, ageMin, ageMax, lang],
   );
 
   // Compute result.

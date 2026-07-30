@@ -12,13 +12,21 @@
 
 export const IMPLICATIONS: Record<string, string[]> = {
   // --- Education hierarchy ------------------------------------------------
-  edu_phd: ['edu_master', 'edu_bachelor', 'edu_associates', 'edu_highschool', 'edu_vocational', 'edu_primary', 'edu_literate'],
-  edu_master: ['edu_bachelor', 'edu_associates', 'edu_highschool', 'edu_vocational', 'edu_primary', 'edu_literate'],
-  edu_top10_uni: ['edu_bachelor', 'edu_associates', 'edu_highschool', 'edu_vocational', 'edu_primary', 'edu_literate'],
-  edu_bachelor: ['edu_associates', 'edu_highschool', 'edu_vocational', 'edu_primary', 'edu_literate'],
-  edu_associates: ['edu_highschool', 'edu_vocational', 'edu_primary', 'edu_literate'],
+  // NOTE: only *strictly cumulative* levels belong here. `edu_vocational`
+  // (vocational high school) and `edu_associates` (ön lisans) are parallel
+  // tracks, not lower rungs: someone with a bachelor's degree usually holds
+  // neither. Listing them as implied would silently delete a real requirement
+  // (e.g. "vocational high school + bachelor's", common for technician roles)
+  // and overstate the pool by ~5x.
+  edu_phd: ['edu_master', 'edu_bachelor', 'edu_highschool', 'edu_primary', 'edu_literate'],
+  edu_master: ['edu_bachelor', 'edu_highschool', 'edu_primary', 'edu_literate'],
+  edu_top10_uni: ['edu_bachelor', 'edu_highschool', 'edu_primary', 'edu_literate'],
+  edu_bachelor: ['edu_highschool', 'edu_primary', 'edu_literate'],
+  // Ön lisans / vocational high school both count as upper-secondary
+  // attainment, so they do imply a high-school diploma.
+  edu_associates: ['edu_highschool', 'edu_primary', 'edu_literate'],
+  edu_vocational: ['edu_highschool', 'edu_primary', 'edu_literate'],
   edu_highschool: ['edu_primary', 'edu_literate'],
-  edu_vocational: ['edu_primary', 'edu_literate'],
   edu_primary: ['edu_literate'],
 
   // --- Languages CEFR hierarchy -------------------------------------------

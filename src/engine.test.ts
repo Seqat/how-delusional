@@ -5,6 +5,8 @@ import {
   experienceProbability,
   delusionScoreFromFraction,
   oneInN,
+  filterSubsumedCriteria,
+  impliedClosure,
 } from './lib/engine';
 
 describe('compute — empty input', () => {
@@ -352,6 +354,200 @@ describe('compute — implication subsumption & disjunctive categories', () => {
     expect(r.fraction).toBeCloseTo(0.27, 4);
     expect(r.breakdown).toHaveLength(1);
     expect(r.breakdown[0].id).toBe('loc_disjunctive_group');
+  });
+});
+
+describe('compute — subsumption must be a true no-op', () => {
+  const base = { experienceYears: 0, ageMin: 0, ageMax: 0 };
+
+  it('adding an already-implied skill does not fire its correlation lift', () => {
+    // cert_aws_sa implies skill_aws. The AWS posting parser emits BOTH ids for
+    // "AWS Certified Solutions Architect". If the subsumed skill_aws were still
+    // used as a correlation `given`, {given: skill_aws, target: cert_aws_sa,
+    // lift: 30} would fire and make the stricter posting look 30x easier.
+    const certOnly = compute({ selectedIds: ['cert_aws_sa'], ...base });
+    const certPlusSkill = compute({
+      selectedIds: ['cert_aws_sa', 'skill_aws'],
+      ...base,
+    });
+    expect(certOnly.fraction).toBeCloseTo(0.0004, 8);
+    expect(certPlusSkill.fraction).toBeCloseTo(certOnly.fraction, 10);
+  });
+
+  it('adding an already-implied cert prerequisite does not fire its lift', () => {
+    // cert_cka implies skill_kubernetes ({given: skill_kubernetes,
+    // target: cert_cka, lift: 40}).
+    const certOnly = compute({ selectedIds: ['cert_cka'], ...base });
+    const withK8s = compute({
+      selectedIds: ['cert_cka', 'skill_kubernetes', 'skill_docker'],
+      ...base,
+    });
+    expect(withK8s.fraction).toBeCloseTo(certOnly.fraction, 10);
+    expect(withK8s.breakdown).toHaveLength(1);
+  });
+
+  it('does not compound lifts from a subsumed education level', () => {
+    // edu_bachelor lifts lang_en_c1 by 3.5 and edu_master lifts it by 3.0.
+    // Requiring "Master's" already covers the bachelor's, so adding it must
+    // not multiply both lifts onto English C1.
+    const withoutBachelor = compute({
+      selectedIds: ['edu_master', 'lang_en_c1'],
+      ...base,
+    });
+    const withBachelor = compute({
+      selectedIds: ['edu_master', 'edu_bachelor', 'lang_en_c1'],
+      ...base,
+    });
+    // master 0.045 × 3.0 (from C1) × C1 0.022 × 3.0 (from master)
+    expect(withoutBachelor.fraction).toBeCloseTo(0.135 * 0.066, 8);
+    expect(withBachelor.fraction).toBeCloseTo(withoutBachelor.fraction, 10);
+  });
+
+  it('ignores duplicate ids instead of widening a disjunctive union', () => {
+    // A hand-edited share hash can carry the same id twice; requiring İstanbul
+    // twice must not double the pool.
+    const once = compute({ selectedIds: ['loc_istanbul'], ...base });
+    const twice = compute({
+      selectedIds: ['loc_istanbul', 'loc_istanbul'],
+      ...base,
+    });
+    expect(once.fraction).toBeCloseTo(0.2, 8);
+    expect(twice.fraction).toBeCloseTo(once.fraction, 10);
+    expect(twice.breakdown).toHaveLength(1);
+    expect(twice.breakdown[0].id).toBe('loc_istanbul');
+  });
+});
+
+describe('compute — disjunctive OR groups keep correlation lifts', () => {
+  const base = { experienceYears: 0, ageMin: 0, ageMax: 0 };
+
+  it('widening an OR group never shrinks the pool', () => {
+    // edu_bachelor lifts field_cs ×8 and field_engineering ×6. If collapsing
+    // the group dropped those lifts, accepting an EXTRA degree would shrink
+    // the pool from 10.1% to 3.4%.
+    const csOnly = compute({
+      selectedIds: ['edu_bachelor', 'field_cs'],
+      ...base,
+    });
+    const csOrEngineering = compute({
+      selectedIds: ['edu_bachelor', 'field_cs', 'field_engineering'],
+      ...base,
+    });
+    // 0.21 × min(1, 0.06 × 8)
+    expect(csOnly.fraction).toBeCloseTo(0.21 * 0.48, 8);
+    expect(csOrEngineering.fraction).toBeGreaterThanOrEqual(csOnly.fraction);
+    // union of the lifted branches: 0.48 + 0.60 → clamped to 1
+    expect(csOrEngineering.fraction).toBeCloseTo(0.21, 8);
+    expect(
+      csOrEngineering.breakdown.some((b) => b.id === 'field_disjunctive_group'),
+    ).toBe(true);
+  });
+
+  it('weights a disjunct member lift by its share of the union', () => {
+    // field_cs lifts skill_python ×15 when CS is mandatory. As one of two
+    // accepted fields it only holds for its share of the pool, so the lift is
+    // interpolated: 1 + (15 - 1) × P(cs)/P(cs or business).
+    const csOnly = compute({
+      selectedIds: ['field_cs', 'skill_python'],
+      ...base,
+    });
+    const csOrBusiness = compute({
+      selectedIds: ['field_cs', 'field_business', 'skill_python'],
+      ...base,
+    });
+    const share = 0.06 / (0.06 + 0.13);
+    const effectiveLift = 1 + (15 - 1) * share;
+
+    expect(csOnly.fraction).toBeCloseTo(0.06 * 0.012 * 15, 8);
+    expect(csOrBusiness.fraction).toBeCloseTo(
+      0.19 * 0.012 * effectiveLift,
+      8,
+    );
+    // strictly between "no lift at all" and "full-strength lift"
+    expect(csOrBusiness.fraction).toBeGreaterThan(0.19 * 0.012);
+    expect(csOrBusiness.fraction).toBeLessThan(0.19 * 0.012 * 15);
+  });
+
+  it('localises synthetic group and experience labels', () => {
+    const args = {
+      selectedIds: ['loc_istanbul', 'loc_ankara'],
+      experienceYears: 5,
+      ageMin: 0,
+      ageMax: 0,
+    };
+    const en = compute(args);
+    expect(
+      en.breakdown.find((b) => b.id === 'loc_disjunctive_group')?.label,
+    ).toBe('Location: İstanbul OR Ankara');
+    expect(en.breakdown.find((b) => b.id === 'experience_years')?.label).toBe(
+      '5 years of experience',
+    );
+
+    const tr = compute({ ...args, lang: 'tr' as const });
+    expect(
+      tr.breakdown.find((b) => b.id === 'loc_disjunctive_group')?.label,
+    ).toBe('Konum: İstanbul VEYA Ankara');
+    expect(tr.breakdown.find((b) => b.id === 'experience_years')?.label).toBe(
+      '5 yıl deneyim',
+    );
+  });
+});
+
+describe('implication table — hierarchy vs parallel tracks', () => {
+  const base = { experienceYears: 0, ageMin: 0, ageMax: 0 };
+
+  it('follows implications transitively', () => {
+    expect(impliedClosure('edu_phd').has('edu_literate')).toBe(true);
+    // cert_cka → skill_kubernetes → skill_docker
+    expect(impliedClosure('cert_cka').has('skill_docker')).toBe(true);
+    expect(impliedClosure('skill_nextjs').has('skill_javascript')).toBe(true);
+  });
+
+  it('does not treat vocational HS / associate degree as lower rungs', () => {
+    // Both are parallel tracks: a bachelor's holder usually has neither.
+    expect(impliedClosure('edu_bachelor').has('edu_vocational')).toBe(false);
+    expect(impliedClosure('edu_bachelor').has('edu_associates')).toBe(false);
+    expect(impliedClosure('edu_phd').has('edu_vocational')).toBe(false);
+  });
+
+  it('keeps a vocational HS requirement alongside a bachelor requirement', () => {
+    const r = compute({
+      selectedIds: ['edu_bachelor', 'edu_vocational'],
+      ...base,
+    });
+    expect(r.breakdown).toHaveLength(2);
+    expect(r.fraction).toBeCloseTo(0.21 * 0.21, 8);
+  });
+
+  it('still subsumes strictly cumulative education levels', () => {
+    const r = compute({
+      selectedIds: ['edu_bachelor', 'edu_highschool', 'edu_literate'],
+      ...base,
+    });
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('edu_bachelor');
+
+    // vocational HS is still an upper-secondary diploma
+    const v = compute({
+      selectedIds: ['edu_vocational', 'edu_highschool'],
+      ...base,
+    });
+    expect(v.breakdown).toHaveLength(1);
+    expect(v.breakdown[0].id).toBe('edu_vocational');
+  });
+
+  it('keeps only the strongest criterion of a chain', () => {
+    expect(
+      filterSubsumedCriteria(['edu_bachelor', 'edu_phd', 'edu_master']),
+    ).toEqual(['edu_phd']);
+    expect(
+      filterSubsumedCriteria(['skill_javascript', 'skill_react', 'skill_nextjs']),
+    ).toEqual(['skill_nextjs']);
+  });
+
+  it('leaves unrelated criteria untouched', () => {
+    const ids = ['skill_python', 'misc_driver_license', 'loc_izmir'];
+    expect(filterSubsumedCriteria(ids)).toEqual(ids);
   });
 });
 

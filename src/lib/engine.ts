@@ -32,6 +32,8 @@ export interface EngineInput {
   ageMin: number;
   /** Required maximum age (0 = not specified, Infinity treated as no cap). */
   ageMax: number;
+  /** Language used for the human-readable breakdown labels. Defaults to 'en'. */
+  lang?: 'en' | 'tr';
 }
 
 export interface BreakdownEntry {
@@ -59,6 +61,42 @@ export interface EngineResult {
 
 const EXPERIENCE_SYNTHETIC_ID = 'experience_years';
 
+const LOC_GROUP_ID = 'loc_disjunctive_group';
+const FIELD_GROUP_ID = 'field_disjunctive_group';
+
+/** i18n for the few strings the engine itself has to synthesise. */
+const ENGINE_STRINGS = {
+  en: {
+    locationPrefix: 'Location',
+    fieldPrefix: 'Field',
+    or: ' OR ',
+    experience: (y: number) => `${y} years of experience`,
+  },
+  tr: {
+    locationPrefix: 'Konum',
+    fieldPrefix: 'Bölüm',
+    or: ' VEYA ',
+    experience: (y: number) => `${y} yıl deneyim`,
+  },
+} as const;
+
+/**
+ * Everything `id` transitively implies. The table is expected to be written
+ * "flat", but we still walk it so a future half-specified entry (A → B where
+ * B → C, without C listed under A) cannot silently leave C double-counted.
+ */
+export function impliedClosure(id: string): Set<string> {
+  const out = new Set<string>();
+  const stack = [...(IMPLICATIONS[id] ?? [])];
+  while (stack.length > 0) {
+    const next = stack.pop() as string;
+    if (next === id || out.has(next)) continue;
+    out.add(next);
+    for (const child of IMPLICATIONS[next] ?? []) stack.push(child);
+  }
+  return out;
+}
+
 /**
  * Filter out criteria that are implied/subsumed by other selected criteria.
  * e.g., edu_master implies edu_bachelor; lang_en_c1 implies lang_en_b2.
@@ -66,12 +104,7 @@ const EXPERIENCE_SYNTHETIC_ID = 'experience_years';
 export function filterSubsumedCriteria(selectedIds: string[]): string[] {
   const implied = new Set<string>();
   for (const id of selectedIds) {
-    const list = IMPLICATIONS[id];
-    if (list) {
-      for (const item of list) {
-        implied.add(item);
-      }
-    }
+    for (const item of impliedClosure(id)) implied.add(item);
   }
   return selectedIds.filter((id) => !implied.has(id));
 }
@@ -112,19 +145,30 @@ export function experienceProbability(
  * Apply correlation lifts. For each active `given`, multiply the probability
  * of every `target` that points to it.
  *
- * We re-evaluate the per-criterion probability AFTER correlation by walking
- * the selected list once and accumulating lifts into a map.
+ * `givenWeights` maps an active criterion to how *certain* it is that a
+ * qualifying candidate satisfies it, in [0,1]:
+ *
+ *   - 1 for a plain required criterion (every candidate in the pool has it),
+ *   - P(member) / P(union) for a member of a disjunctive OR group, since only
+ *     that share of the surviving pool actually satisfies this branch.
+ *
+ * The weight interpolates the lift linearly, which is exactly the mixture
+ * model: P(t | a OR b) = w·P(t|a) + (1-w)·P(t|b), and with P(t|b) ≈ P(t)
+ * that collapses to an effective lift of `1 + (lift - 1) * w`. At w = 1 this
+ * reduces to the raw lift, so plain conjunctive criteria are unaffected.
  */
 function applyCorrelations(
   baseProbById: Map<string, number>,
-  activeIds: Set<string>,
+  givenWeights: Map<string, number>,
 ): Map<string, number> {
   const liftById = new Map<string, number>();
 
   for (const c of CORRELATIONS) {
-    if (!activeIds.has(c.given)) continue;
+    const weight = givenWeights.get(c.given);
+    if (weight === undefined || weight <= 0) continue;
+    const effectiveLift = 1 + (c.lift - 1) * Math.min(1, weight);
     const prev = liftById.get(c.target) ?? 1;
-    liftById.set(c.target, prev * c.lift);
+    liftById.set(c.target, prev * effectiveLift);
   }
 
   const adjusted = new Map<string, number>();
@@ -171,9 +215,17 @@ export function delusionScoreFromFraction(fraction: number): number {
 /** Pure engine: input → result. No side effects. */
 export function compute(input: EngineInput): EngineResult {
   const contradictions: string[] = [];
-  const rawSelectedIds = input.selectedIds.filter((id) => CRITERIA_BY_ID[id]);
+  const lang = input.lang ?? 'en';
+  const str = ENGINE_STRINGS[lang];
+
+  // Dedupe first: a hand-edited share hash can carry the same id twice, and a
+  // duplicate must never make a requirement cheaper — or a disjunctive union
+  // wider — than asking for it once.
+  const validSelectedIds = Array.from(
+    new Set(input.selectedIds.filter((id) => CRITERIA_BY_ID[id])),
+  );
   // Pre-pass: Filter out subsumed/implied criteria (e.g. Bachelor's when Master's is selected)
-  const selectedIds = filterSubsumedCriteria(rawSelectedIds);
+  const selectedIds = filterSubsumedCriteria(validSelectedIds);
 
   // --- Step 1: handle experience + age gate BEFORE building the pool. ------
   let impossible = false;
@@ -228,83 +280,96 @@ export function compute(input: EngineInput): EngineResult {
     }
   }
 
-  // --- Step 2: process disjunctive categories (Location & Field of Study) ---
-  const activeIdsForCalculation: string[] = [];
+  // --- Step 2: base probabilities for every effective criterion -----------
+  // Criteria stay individual here on purpose. Disjunctive OR groups are only
+  // collapsed in step 5, AFTER correlation lifts, so that a lift targeting a
+  // group member (e.g. edu_bachelor → field_cs ×8) is not silently dropped.
   const baseProbById = new Map<string, number>();
   const labelById = new Map<string, string>();
 
-  // Process disjunctive group: Location (loc_)
-  const locIds = selectedIds.filter((id) => id.startsWith('loc_'));
-  const nonLocIds = selectedIds.filter((id) => !id.startsWith('loc_'));
-
-  if (locIds.length > 1) {
-    const combinedProb = Math.min(
-      1,
-      locIds.reduce((sum, id) => sum + CRITERIA_BY_ID[id].probability, 0),
-    );
-    const combinedLabel = `Location: ${locIds.map((id) => CRITERIA_BY_ID[id].label.en).join(' OR ')}`;
-    const syntheticLocId = 'loc_disjunctive_group';
-    baseProbById.set(syntheticLocId, combinedProb);
-    labelById.set(syntheticLocId, combinedLabel);
-    activeIdsForCalculation.push(syntheticLocId);
-  } else if (locIds.length === 1) {
-    const id = locIds[0];
-    const c = CRITERIA_BY_ID[id];
+  for (const id of selectedIds) {
+    const c: Criterion = CRITERIA_BY_ID[id];
     baseProbById.set(id, c.probability);
-    labelById.set(id, c.label.en);
-    activeIdsForCalculation.push(id);
-  }
-
-  // Process disjunctive group: Field of Study (field_)
-  const fieldIds = nonLocIds.filter((id) => id.startsWith('field_'));
-  const remainingIds = nonLocIds.filter((id) => !id.startsWith('field_'));
-
-  if (fieldIds.length > 1) {
-    const combinedProb = Math.min(
-      1,
-      fieldIds.reduce((sum, id) => sum + CRITERIA_BY_ID[id].probability, 0),
-    );
-    const combinedLabel = `Field: ${fieldIds.map((id) => CRITERIA_BY_ID[id].label.en).join(' OR ')}`;
-    const syntheticFieldId = 'field_disjunctive_group';
-    baseProbById.set(syntheticFieldId, combinedProb);
-    labelById.set(syntheticFieldId, combinedLabel);
-    activeIdsForCalculation.push(syntheticFieldId);
-  } else if (fieldIds.length === 1) {
-    const id = fieldIds[0];
-    const c = CRITERIA_BY_ID[id];
-    baseProbById.set(id, c.probability);
-    labelById.set(id, c.label.en);
-    activeIdsForCalculation.push(id);
-  }
-
-  // Add all remaining non-disjunctive criteria
-  for (const id of remainingIds) {
-    const c = CRITERIA_BY_ID[id];
-    baseProbById.set(id, c.probability);
-    labelById.set(id, c.label.en);
-    activeIdsForCalculation.push(id);
+    labelById.set(id, c.label[lang]);
   }
 
   if (input.experienceYears > 0) {
     baseProbById.set(EXPERIENCE_SYNTHETIC_ID, experienceProb);
-    labelById.set(
-      EXPERIENCE_SYNTHETIC_ID,
-      `${input.experienceYears} years of experience`,
-    );
-    activeIdsForCalculation.push(EXPERIENCE_SYNTHETIC_ID);
+    labelById.set(EXPERIENCE_SYNTHETIC_ID, str.experience(input.experienceYears));
   }
 
-  // --- Step 3: apply correlation lifts ------------------------------------
-  // We pass rawSelectedIds to correlation lookup so that underlying given IDs
-  // (e.g. field_cs) still trigger correlation lifts for their targets!
-  const activeIdsForCorrelations = new Set<string>([
-    ...rawSelectedIds,
-    ...(input.experienceYears > 0 ? [EXPERIENCE_SYNTHETIC_ID] : []),
-  ]);
-  const adjusted = applyCorrelations(baseProbById, activeIdsForCorrelations);
+  // --- Step 3: identify disjunctive OR groups (Location, Field of study) ---
+  interface DisjunctiveGroup {
+    syntheticId: string;
+    memberIds: string[];
+    label: string;
+  }
+  const locIds = selectedIds.filter((id) => id.startsWith('loc_'));
+  const fieldIds = selectedIds.filter((id) => id.startsWith('field_'));
+  const groups: DisjunctiveGroup[] = [];
 
-  // --- Step 4: build the waterfall sorted by damage (most restrictive first) --
-  const activeList = [...activeIdsForCalculation];
+  if (locIds.length > 1) {
+    groups.push({
+      syntheticId: LOC_GROUP_ID,
+      memberIds: locIds,
+      label: `${str.locationPrefix}: ${locIds
+        .map((id) => CRITERIA_BY_ID[id].label[lang])
+        .join(str.or)}`,
+    });
+  }
+  if (fieldIds.length > 1) {
+    groups.push({
+      syntheticId: FIELD_GROUP_ID,
+      memberIds: fieldIds,
+      label: `${str.fieldPrefix}: ${fieldIds
+        .map((id) => CRITERIA_BY_ID[id].label[lang])
+        .join(str.or)}`,
+    });
+  }
+
+  // --- Step 4: apply correlation lifts ------------------------------------
+  // Givens are the *effective* criteria only. A subsumed criterion must never
+  // act as a given: it has already been folded into the criterion that implies
+  // it, so letting it lift anything would make an added-but-redundant
+  // requirement ("CKA certified" + "Kubernetes") look 40x easier to satisfy.
+  const givenWeights = new Map<string, number>();
+  for (const id of selectedIds) givenWeights.set(id, 1);
+  if (input.experienceYears > 0) givenWeights.set(EXPERIENCE_SYNTHETIC_ID, 1);
+
+  // A member of an OR group only holds for its share of the surviving pool,
+  // so it lifts its targets proportionally instead of at full strength.
+  for (const group of groups) {
+    const total = group.memberIds.reduce(
+      (sum, id) => sum + CRITERIA_BY_ID[id].probability,
+      0,
+    );
+    for (const id of group.memberIds) {
+      givenWeights.set(
+        id,
+        total > 0 ? CRITERIA_BY_ID[id].probability / total : 0,
+      );
+    }
+  }
+
+  const adjusted = applyCorrelations(baseProbById, givenWeights);
+
+  // --- Step 5: collapse OR groups from the LIFT-ADJUSTED member probs ------
+  // Union of the branches, so widening an OR can only ever widen the pool.
+  const groupedMemberIds = new Set<string>();
+  for (const group of groups) {
+    const combined = Math.min(
+      1,
+      group.memberIds.reduce((sum, id) => sum + (adjusted.get(id) ?? 0), 0),
+    );
+    adjusted.set(group.syntheticId, combined);
+    labelById.set(group.syntheticId, group.label);
+    for (const id of group.memberIds) groupedMemberIds.add(id);
+  }
+
+  // --- Step 6: build the waterfall sorted by damage (most restrictive first) --
+  const activeList = [...adjusted.keys()].filter(
+    (id) => !groupedMemberIds.has(id),
+  );
 
   // Sort criteria so that the most damaging / selective filter comes first
   activeList.sort((a, b) => {
