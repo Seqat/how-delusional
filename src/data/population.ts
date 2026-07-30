@@ -235,6 +235,7 @@ export const HARD_SKILLS: Criterion[] = [
   { id: 'skill_terraform',  label: { en: 'Terraform',              tr: 'Terraform' },              probability: 0.0008, source: 'SO Dev Survey 2024', confidence: 'estimated' },
   { id: 'skill_ci_cd',      label: { en: 'CI/CD (GitHub Actions / Jenkins)', tr: 'CI/CD (GitHub Actions / Jenkins)' }, probability: 0.003, source: 'Estimate — DevOps workforce', confidence: 'estimated' },
   { id: 'skill_linux',      label: { en: 'Linux admin',            tr: 'Linux yönetimi' },         probability: 0.005, source: 'Estimate — IT workforce', confidence: 'estimated' },
+  { id: 'skill_git',        label: { en: 'Git',                    tr: 'Git' },                    probability: 0.015, source: 'Estimate — near-universal among devs', confidence: 'estimated' },
 
   // --- Data / ML ----------------------------------------------------------
   { id: 'skill_sql_advanced', label: { en: 'Advanced SQL (window fns, perf)', tr: 'İleri SQL (window, performans)' }, probability: 0.004, source: 'Estimate — analyst/engineer overlap', confidence: 'estimated' },

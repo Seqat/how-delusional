@@ -13,6 +13,8 @@ interface GroupProps {
   lang: Lang;
   search?: string;
   t: Dict;
+  /** subsumed criterion id -> label of the selection that already implies it. */
+  subsumedBy: Map<string, string>;
 }
 
 function Group({
@@ -23,6 +25,7 @@ function Group({
   lang,
   search = '',
   t,
+  subsumedBy,
 }: GroupProps): JSX.Element {
   const filtered = search
     ? criteria.filter(
@@ -43,17 +46,27 @@ function Group({
       <div class="chips">
         {filtered.map((c) => {
           const isOn = selected.has(c.id);
+          // Selected, but another selection already implies it — the engine
+          // counted it once, so say so instead of leaving the chip looking
+          // like it is doing work.
+          const impliedBy = isOn ? subsumedBy.get(c.id) : undefined;
+          const tooltip = `${c.source}\nconfidence: ${c.confidence}\nbase prob: ${(c.probability * 100).toFixed(2)}%`;
           return (
             <button
               key={c.id}
               type="button"
-              class={`chip ${isOn ? 'chip-on' : ''}`}
+              class={`chip ${isOn ? 'chip-on' : ''} ${impliedBy ? 'chip-subsumed' : ''}`}
               aria-pressed={isOn}
-              title={`${c.source}\nconfidence: ${c.confidence}\nbase prob: ${(c.probability * 100).toFixed(2)}%`}
+              title={impliedBy ? `${tooltip}\n\n${t.subsumed_tooltip(impliedBy)}` : tooltip}
               onClick={() => onToggle(c.id)}
             >
               <span class="chip-dot" aria-hidden="true">{isOn ? '✓' : ''}</span>
               <span class="chip-text">{c.label[lang]}</span>
+              {impliedBy && (
+                <span class="chip-subsumed-badge" aria-label={t.subsumed_tooltip(impliedBy)}>
+                  {t.subsumed_badge} {impliedBy}
+                </span>
+              )}
               <span class="chip-prob">{(c.probability * 100).toFixed(c.probability >= 0.01 ? 1 : 2)}%</span>
             </button>
           );
@@ -89,6 +102,8 @@ interface InputPanelProps {
   onReset: () => void;
   onSelectPreset: (preset: Preset) => void;
   onParseText: (text: string) => void;
+  /** subsumed criterion id -> label of the selection that already implies it. */
+  subsumedBy: Map<string, string>;
 }
 
 export function InputPanel(props: InputPanelProps): JSX.Element {
@@ -96,8 +111,11 @@ export function InputPanel(props: InputPanelProps): JSX.Element {
     selected, onToggle, experienceYears, onExperienceChange,
     ageMin, ageMax, onAgeMinChange, onAgeMaxChange,
     lang, t, data, skillSearch, onSkillSearch, onReset,
-    onSelectPreset, onParseText,
+    onSelectPreset, onParseText, subsumedBy,
   } = props;
+
+  // Shared by every Group; keeps the eight call sites below readable.
+  const groupCommon = { selected, onToggle, lang, t, subsumedBy };
 
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [pasteText, setPasteText] = useState('');
@@ -248,21 +266,21 @@ export function InputPanel(props: InputPanelProps): JSX.Element {
         </div>
       </fieldset>
 
-      <Group title={t.group_education} criteria={data.education} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_education} criteria={data.education} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_field} criteria={data.field} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_field} criteria={data.field} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_skills} criteria={data.skills} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_skills} criteria={data.skills} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_languages} criteria={data.languages} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_languages} criteria={data.languages} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_certs} criteria={data.certs} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_certs} criteria={data.certs} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_age} criteria={data.age} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_age} criteria={data.age} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_location} criteria={data.location} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_location} criteria={data.location} search={skillSearch} {...groupCommon} />
 
-      <Group title={t.group_misc} criteria={data.misc} selected={selected} onToggle={onToggle} lang={lang} search={skillSearch} t={t} />
+      <Group title={t.group_misc} criteria={data.misc} search={skillSearch} {...groupCommon} />
     </div>
   );
 }

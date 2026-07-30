@@ -66,6 +66,18 @@ Examples:
 - `edu_bachelor → lang_en_b2`: lift 3× (university grads skew B2+ English)
 - `misc_married_ok → misc_no_kids`: lift 0.4× (negative correlation — married people are more likely to have kids)
 
+### Step 2b — Subsumption and OR groups
+
+Two selections can describe the same requirement, and multiplying them prices it twice. Both cases are resolved from [`src/data/implications.ts`](src/data/implications.ts) before anything is multiplied:
+
+**Subsumption.** `IMPLICATIONS` maps a criterion to everything it presupposes. Spring Boot implies Java, a master's implies a bachelor's, CKA implies Kubernetes implies Docker. When both ends are selected, only the stronger one survives — otherwise "Spring Boot + Java" reads as 1-in-111,000 instead of 1-in-667. The closure is walked transitively, so a half-specified entry cannot leave something double-counted. Dropped criteria are returned in `result.subsumed`, and the UI marks the chip rather than silently ignoring it.
+
+Subsumed criteria are also barred from acting as correlation *givens*: they have already been folded into their implier, so letting them lift anything would make a redundant requirement look easier than the plain one.
+
+**Disjunctive categories.** `DISJUNCTIVE_CATEGORIES` lists the categories whose members are alternatives rather than requirements — location, field of study, age bracket and education level. Selecting several means "any of these," so the engine collapses them into one synthetic criterion whose probability is the **union** of the branches. Two age brackets are a range, not a conjunction; "lisans veya ön lisans" unions to ~31% rather than multiplying to ~2%.
+
+Group members lift their correlation targets only in proportion to their share of the union (`P(member) / P(union)`), which is the mixture model `P(t | a OR b) = w·P(t|a) + (1-w)·P(t|b)`. The collapse happens *after* lifts are applied, so a lift aimed at one branch is not lost.
+
 ### Step 3 — Age–experience feasibility gate
 
 If the posting demands **N** years of experience but caps age at **M**, and `M - N < 22` (i.e., the candidate would have had to start this career before finishing a bachelor's at 22), the result collapses toward zero and the UI flags it as a logical impossibility with a dedicated message.
@@ -165,7 +177,7 @@ All UI strings live in `src/i18n/en.ts` and `src/i18n/tr.ts`. The default langua
     ├── data/
     │   ├── population.ts            # ALL numbers live here
     │   ├── correlations.ts          # sparse lift table
-    │   ├── implications.ts          # satirical advice & warnings
+    │   ├── implications.ts          # prerequisite map + disjunctive (OR) categories
     │   └── presets.ts               # pre-configured sample job postings
     ├── lib/
     │   ├── engine.ts                # pure calculation core

@@ -119,6 +119,13 @@ export function App(): JSX.Element {
     return compute(input);
   }, [input, selected, experienceYears, ageMin, ageMax]);
 
+  // Chips whose constraint another selection already covers, so the input
+  // panel can mark them instead of letting them look ignored.
+  const subsumedBy = useMemo(
+    () => new Map(result.subsumed.map((s) => [s.id, s.byLabel])),
+    [result],
+  );
+
   // Sync hash changes (e.g. browser back/forward navigation or manual URL edits)
   useEffect(() => {
     const handleHashChange = () => {
@@ -198,6 +205,7 @@ export function App(): JSX.Element {
             onReset={reset}
             onSelectPreset={handleSelectPreset}
             onParseText={handleParseText}
+            subsumedBy={subsumedBy}
           />
         </section>
 

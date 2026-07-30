@@ -42,6 +42,12 @@ export const tr: Dict = {
   verdict_nonexistent: 'Bu kişi mevcut değil',
   verdict_nonexistent_desc: 'Şartların birbirini eliyor. Matematik bunu dürüstçe söylüyor.',
   contradictions_title: 'Bulunan mantık çelişkileri',
+  subsumed_title: 'Zaten kapsanıyor',
+  subsumed_badge: '⊂',
+  subsumed_tooltip: (by: string) => `${by} bunu zaten gerektiriyor — iki kez sayılmadı.`,
+  subsumed_note: (list: string) =>
+    `${list} — bunlar seçtiğin başka bir şartın ön koşulu olduğu için iki kez değil, bir kez sayıldı.`,
+  subsumed_pair: (id: string, by: string) => `${id}, ${by} tarafından zaten kapsanıyor`,
 
   breakdown_title: 'Aday havuzu nerede öldü',
   breakdown_subtitle: 'Her satır bir şart; havuzu en çok daraltan en üstte.',

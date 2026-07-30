@@ -8,6 +8,8 @@ import {
   filterSubsumedCriteria,
   impliedClosure,
 } from './lib/engine';
+import { CRITERIA_BY_ID } from './data/population';
+import { DISJUNCTIVE_CATEGORIES, IMPLICATIONS } from './data/implications';
 
 describe('compute — empty input', () => {
   it('returns fraction = 1.0 when no criteria are selected', () => {
@@ -510,13 +512,18 @@ describe('implication table — hierarchy vs parallel tracks', () => {
     expect(impliedClosure('edu_phd').has('edu_vocational')).toBe(false);
   });
 
-  it('keeps a vocational HS requirement alongside a bachelor requirement', () => {
+  it('reads two parallel education tracks as alternatives, not a conjunction', () => {
+    // "lisans veya meslek lisesi" is the standard posting phrasing. Neither
+    // subsumes the other, so they union into one branch instead of
+    // multiplying into an absurdly small pool.
     const r = compute({
       selectedIds: ['edu_bachelor', 'edu_vocational'],
       ...base,
     });
-    expect(r.breakdown).toHaveLength(2);
-    expect(r.fraction).toBeCloseTo(0.21 * 0.21, 8);
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('edu_disjunctive_group');
+    expect(r.fraction).toBeCloseTo(0.21 + 0.21, 8);
+    expect(r.fraction).toBeGreaterThan(0.21 * 0.21);
   });
 
   it('still subsumes strictly cumulative education levels', () => {
@@ -548,6 +555,147 @@ describe('implication table — hierarchy vs parallel tracks', () => {
   it('leaves unrelated criteria untouched', () => {
     const ids = ['skill_python', 'misc_driver_license', 'loc_izmir'];
     expect(filterSubsumedCriteria(ids)).toEqual(ids);
+  });
+});
+
+describe('implication table — data invariants', () => {
+  it('references only criteria that exist', () => {
+    const unknown: string[] = [];
+    for (const [id, implied] of Object.entries(IMPLICATIONS)) {
+      if (!CRITERIA_BY_ID[id]) unknown.push(id);
+      for (const target of implied) {
+        if (!CRITERIA_BY_ID[target]) unknown.push(`${id} -> ${target}`);
+      }
+    }
+    expect(unknown).toEqual([]);
+  });
+
+  it('never implies something rarer than itself', () => {
+    // If A implies B then A's population is a subset of B's, so P(A) <= P(B).
+    // A violation means either the implication or one of the probabilities is
+    // wrong, and the engine would report a *larger* pool for a *stricter*
+    // requirement.
+    const violations: string[] = [];
+    for (const [id, implied] of Object.entries(IMPLICATIONS)) {
+      const pA = CRITERIA_BY_ID[id]?.probability;
+      if (pA === undefined) continue;
+      for (const target of implied) {
+        const pB = CRITERIA_BY_ID[target]?.probability;
+        if (pB === undefined) continue;
+        if (pA > pB) {
+          violations.push(`${id} (${pA}) implies ${target} (${pB})`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('declares a disjunctive group id that cannot collide with a real criterion', () => {
+    for (const category of DISJUNCTIVE_CATEGORIES) {
+      expect(CRITERIA_BY_ID[category.groupId]).toBeUndefined();
+      expect(category.groupId.startsWith(category.prefix)).toBe(true);
+    }
+  });
+});
+
+describe('framework + language pairs are one requirement, not two', () => {
+  const base = { experienceYears: 0, ageMin: 0, ageMax: 0 };
+
+  // Every pair here is a hard prerequisite: you cannot do the framework
+  // without the language, so asking for both must not shrink the pool.
+  const pairs: [string, string][] = [
+    ['skill_spring', 'skill_java'],
+    ['skill_dotnet', 'skill_csharp'],
+    ['skill_laravel', 'skill_php'],
+    ['skill_tensorflow', 'skill_python'],
+    ['skill_airflow', 'skill_python'],
+  ];
+
+  for (const [framework, language] of pairs) {
+    it(`${framework} + ${language} costs the same as ${framework} alone`, () => {
+      const alone = compute({ selectedIds: [framework], ...base });
+      const both = compute({ selectedIds: [framework, language], ...base });
+      expect(both.fraction).toBeCloseTo(alone.fraction, 12);
+      expect(both.breakdown).toHaveLength(1);
+      expect(both.subsumed.map((s) => s.id)).toEqual([language]);
+      expect(both.subsumed[0].byId).toBe(framework);
+    });
+  }
+
+  it('Spring Boot + Java lands near 1-in-667, not 1-in-111,000', () => {
+    // The bug this suite exists for: naive independence multiplied
+    // 0.0015 x 0.006 and reported a pool 166x too small.
+    const r = compute({ selectedIds: ['skill_spring', 'skill_java'], ...base });
+    expect(oneInN(r.fraction)).toBe(667);
+  });
+
+  it('resolves a transitive chain down to one entry', () => {
+    // angular -> typescript -> javascript
+    const r = compute({
+      selectedIds: ['skill_angular', 'skill_typescript', 'skill_javascript'],
+      ...base,
+    });
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('skill_angular');
+    expect(r.subsumed.map((s) => s.id).sort()).toEqual([
+      'skill_javascript',
+      'skill_typescript',
+    ]);
+  });
+
+  it('reports the subsuming criterion in the requested language', () => {
+    const r = compute({
+      selectedIds: ['skill_kubernetes', 'skill_docker'],
+      lang: 'tr',
+      ...base,
+    });
+    expect(r.subsumed[0].byLabel).toBe('Kubernetes');
+  });
+});
+
+describe('disjunctive categories', () => {
+  const base = { experienceYears: 0, ageMin: 0, ageMax: 0 };
+
+  it('unions two age brackets instead of multiplying them', () => {
+    // Nobody is 25-34 AND 35-44; two brackets describe one range.
+    const a = CRITERIA_BY_ID['age_25_29'].probability;
+    const b = CRITERIA_BY_ID['age_30_34'].probability;
+    const r = compute({ selectedIds: ['age_25_29', 'age_30_34'], ...base });
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('age_disjunctive_group');
+    expect(r.fraction).toBeCloseTo(a + b, 8);
+    expect(r.fraction).toBeGreaterThan(a * b);
+  });
+
+  it('leaves a single selection in a disjunctive category alone', () => {
+    const r = compute({ selectedIds: ['age_25_29'], ...base });
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('age_25_29');
+  });
+
+  it('labels the group with a localized prefix', () => {
+    const en = compute({ selectedIds: ['edu_bachelor', 'edu_associates'], ...base });
+    expect(en.breakdown[0].label).toContain('Education');
+    expect(en.breakdown[0].label).toContain(' OR ');
+
+    const tr = compute({
+      selectedIds: ['edu_bachelor', 'edu_associates'],
+      lang: 'tr',
+      ...base,
+    });
+    expect(tr.breakdown[0].label).toContain('Eğitim');
+    expect(tr.breakdown[0].label).toContain(' VEYA ');
+  });
+
+  it('subsumes before grouping, so a redundant level does not widen the union', () => {
+    // Bachelor's already implies high school: the pair is one requirement,
+    // not a "bachelor's OR high school" union covering half the country.
+    const r = compute({
+      selectedIds: ['edu_bachelor', 'edu_highschool'],
+      ...base,
+    });
+    expect(r.breakdown).toHaveLength(1);
+    expect(r.breakdown[0].id).toBe('edu_bachelor');
   });
 });
 

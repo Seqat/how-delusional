@@ -21,7 +21,7 @@ import {
   DEFAULT_AGE,
 } from '../data/population';
 import { CORRELATIONS } from '../data/correlations';
-import { IMPLICATIONS } from '../data/implications';
+import { DISJUNCTIVE_CATEGORIES, IMPLICATIONS } from '../data/implications';
 
 export interface EngineInput {
   /** IDs of selected criteria from population.ts (education, skills, etc.). */
@@ -57,24 +57,44 @@ export interface EngineResult {
   contradictions: string[];
   /** Waterfall entries ordered by descending damage. */
   breakdown: BreakdownEntry[];
+  /**
+   * Criteria dropped from the pool because another selection already implies
+   * them (Java when Spring Boot is selected). Surfaced so the UI can explain
+   * why adding them changed nothing.
+   */
+  subsumed: SubsumedEntry[];
+}
+
+export interface SubsumedEntry {
+  /** The criterion that was folded away. */
+  id: string;
+  label: string;
+  /** The selected criterion that implies it. */
+  byId: string;
+  byLabel: string;
 }
 
 const EXPERIENCE_SYNTHETIC_ID = 'experience_years';
 
-const LOC_GROUP_ID = 'loc_disjunctive_group';
-const FIELD_GROUP_ID = 'field_disjunctive_group';
-
 /** i18n for the few strings the engine itself has to synthesise. */
 const ENGINE_STRINGS = {
   en: {
-    locationPrefix: 'Location',
-    fieldPrefix: 'Field',
+    prefixes: {
+      location: 'Location',
+      field: 'Field',
+      age: 'Age',
+      education: 'Education',
+    },
     or: ' OR ',
     experience: (y: number) => `${y} years of experience`,
   },
   tr: {
-    locationPrefix: 'Konum',
-    fieldPrefix: 'Bölüm',
+    prefixes: {
+      location: 'Konum',
+      field: 'Bölüm',
+      age: 'Yaş',
+      education: 'Eğitim',
+    },
     or: ' VEYA ',
     experience: (y: number) => `${y} yıl deneyim`,
   },
@@ -98,15 +118,44 @@ export function impliedClosure(id: string): Set<string> {
 }
 
 /**
+ * Split a selection into the criteria that actually constrain the pool and the
+ * ones another selection already implies.
+ *
+ * e.g. edu_master implies edu_bachelor; skill_spring implies skill_java. The
+ * implied ones are not requirements on top of their implier — counting them
+ * separately multiplies the same constraint twice (Spring Boot + Java reads as
+ * 1-in-111,000 instead of 1-in-667).
+ *
+ * `subsumedBy` records which selection did the implying, so the UI can say so
+ * rather than silently ignoring a lit-up chip.
+ */
+export function resolveSubsumption(selectedIds: string[]): {
+  kept: string[];
+  subsumedBy: Map<string, string>;
+} {
+  const subsumedBy = new Map<string, string>();
+  for (const id of selectedIds) {
+    for (const item of impliedClosure(id)) {
+      // Only report ids the user actually selected, and keep the first
+      // implier so the attribution is stable across re-renders.
+      if (selectedIds.includes(item) && !subsumedBy.has(item)) {
+        subsumedBy.set(item, id);
+      }
+    }
+  }
+  return {
+    kept: selectedIds.filter((id) => !subsumedBy.has(id)),
+    subsumedBy,
+  };
+}
+
+/**
  * Filter out criteria that are implied/subsumed by other selected criteria.
- * e.g., edu_master implies edu_bachelor; lang_en_c1 implies lang_en_b2.
+ * Thin wrapper over `resolveSubsumption` for callers that only need the
+ * surviving set.
  */
 export function filterSubsumedCriteria(selectedIds: string[]): string[] {
-  const implied = new Set<string>();
-  for (const id of selectedIds) {
-    for (const item of impliedClosure(id)) implied.add(item);
-  }
-  return selectedIds.filter((id) => !implied.has(id));
+  return resolveSubsumption(selectedIds).kept;
 }
 
 /**
@@ -225,7 +274,13 @@ export function compute(input: EngineInput): EngineResult {
     new Set(input.selectedIds.filter((id) => CRITERIA_BY_ID[id])),
   );
   // Pre-pass: Filter out subsumed/implied criteria (e.g. Bachelor's when Master's is selected)
-  const selectedIds = filterSubsumedCriteria(validSelectedIds);
+  const { kept: selectedIds, subsumedBy } = resolveSubsumption(validSelectedIds);
+  const subsumed: SubsumedEntry[] = [...subsumedBy].map(([id, byId]) => ({
+    id,
+    label: CRITERIA_BY_ID[id].label[lang],
+    byId,
+    byLabel: CRITERIA_BY_ID[byId].label[lang],
+  }));
 
   // --- Step 1: handle experience + age gate BEFORE building the pool. ------
   let impossible = false;
@@ -261,7 +316,7 @@ export function compute(input: EngineInput): EngineResult {
         impossible = true;
         contradictions.push(
           `Asking for ${input.experienceYears} years of experience but capping age at ${input.ageMax} ` +
-            `requires starting this career at age ${neededAge - input.experienceYears + input.experienceYears - input.experienceYears}. ` +
+            `requires starting this career at age ${neededAge - input.experienceYears}. ` +
             `The youngest anyone with that much experience can be is ${neededAge}.`,
         );
       }
@@ -304,24 +359,16 @@ export function compute(input: EngineInput): EngineResult {
     memberIds: string[];
     label: string;
   }
-  const locIds = selectedIds.filter((id) => id.startsWith('loc_'));
-  const fieldIds = selectedIds.filter((id) => id.startsWith('field_'));
   const groups: DisjunctiveGroup[] = [];
 
-  if (locIds.length > 1) {
+  for (const category of DISJUNCTIVE_CATEGORIES) {
+    const memberIds = selectedIds.filter((id) => id.startsWith(category.prefix));
+    // A single selection is just an ordinary criterion — no union to take.
+    if (memberIds.length < 2) continue;
     groups.push({
-      syntheticId: LOC_GROUP_ID,
-      memberIds: locIds,
-      label: `${str.locationPrefix}: ${locIds
-        .map((id) => CRITERIA_BY_ID[id].label[lang])
-        .join(str.or)}`,
-    });
-  }
-  if (fieldIds.length > 1) {
-    groups.push({
-      syntheticId: FIELD_GROUP_ID,
-      memberIds: fieldIds,
-      label: `${str.fieldPrefix}: ${fieldIds
+      syntheticId: category.groupId,
+      memberIds,
+      label: `${str.prefixes[category.labelKey]}: ${memberIds
         .map((id) => CRITERIA_BY_ID[id].label[lang])
         .join(str.or)}`,
     });
@@ -408,9 +455,6 @@ export function compute(input: EngineInput): EngineResult {
   const absolutePeople = fraction * WORKING_AGE_POPULATION;
   const delusionScore = delusionScoreFromFraction(fraction);
 
-  // Sort breakdown by damage descending (most damaging first).
-  const sortedBreakdown = [...breakdown].sort((a, b) => b.lostPercent - a.lostPercent);
-
   return {
     fraction,
     absolutePeople,
@@ -418,6 +462,7 @@ export function compute(input: EngineInput): EngineResult {
     impossible,
     contradictions,
     breakdown,
+    subsumed,
   };
 }
 
@@ -430,5 +475,6 @@ export function computeEmpty(): EngineResult {
     impossible: false,
     contradictions: [],
     breakdown: [],
+    subsumed: [],
   };
 }

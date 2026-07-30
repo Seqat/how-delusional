@@ -22,7 +22,7 @@ function verdictFor(score: number, impossible: boolean): { key: keyof Dict; colo
 }
 
 export function ResultPanel({ result, t, lang, onOpenModal }: Props): JSX.Element {
-  const { fraction, absolutePeople, delusionScore, impossible, contradictions } = result;
+  const { fraction, absolutePeople, delusionScore, impossible, contradictions, subsumed } = result;
   const v = verdictFor(delusionScore, impossible);
   const verdictName = t[v.key] as string;
   const verdictDescKey = `${v.key}_desc` as keyof Dict;
@@ -76,6 +76,17 @@ export function ResultPanel({ result, t, lang, onOpenModal }: Props): JSX.Elemen
           {contradictions.map((c, i) => (
             <div key={i} class="alert alert-contradiction">{c}</div>
           ))}
+        </div>
+      )}
+
+      {subsumed.length > 0 && (
+        <div class="subsumed-note">
+          <div class="subsumed-note-title">{t.subsumed_title}</div>
+          <p>
+            {t.subsumed_note(
+              subsumed.map((s) => t.subsumed_pair(s.label, s.byLabel)).join('; '),
+            )}
+          </p>
         </div>
       )}
     </div>

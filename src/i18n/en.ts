@@ -42,6 +42,12 @@ export const en = {
   verdict_nonexistent: 'This person does not exist',
   verdict_nonexistent_desc: 'Your requirements are mutually exclusive. The math is honest about it.',
   contradictions_title: 'Logical contradictions found',
+  subsumed_title: 'Already included',
+  subsumed_badge: '⊂',
+  subsumed_tooltip: (by: string) => `Already implied by ${by} — not counted twice.`,
+  subsumed_note: (list: string) =>
+    `${list} — these are prerequisites of something else you selected, so they were counted once, not twice.`,
+  subsumed_pair: (id: string, by: string) => `${id} is already implied by ${by}`,
 
   // Breakdown
   breakdown_title: 'Where the candidate pool went to die',
