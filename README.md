@@ -11,7 +11,7 @@ A satirical-but-statistically-honest single-page web app. Paste the requirements
 - **Vite + TypeScript + Preact** (via `@preact/preset-vite`)
 - Single hand-written `src/styles.css` using CSS custom properties
 - Hand-drawn inline SVG for the gauge and waterfall chart (no chart library)
-- **Job Posting Parser**: Pure client-side regex and alias dictionary for pasting raw job descriptions
+- **Job Posting Parser**: Pure client-side parser with whole-word Unicode tokenization, stem alias dictionary, regex constraint extraction, and automated prerequisite subsumption
 - **HTML5 Canvas Card Export**: Generates downloadable/shareable PNG summary cards directly in browser
 - Static-only — no backend, no database, no auth, no analytics, no cookie banner
 - All state in Preact hooks (`useState`/`useMemo`); no global state library
@@ -70,11 +70,13 @@ Examples:
 
 Two selections can describe the same requirement, and multiplying them prices it twice. Both cases are resolved from [`src/data/implications.ts`](src/data/implications.ts) before anything is multiplied:
 
-**Subsumption.** `IMPLICATIONS` maps a criterion to everything it presupposes. Spring Boot implies Java, a master's implies a bachelor's, CKA implies Kubernetes implies Docker. When both ends are selected, only the stronger one survives — otherwise "Spring Boot + Java" reads as 1-in-111,000 instead of 1-in-667. The closure is walked transitively, so a half-specified entry cannot leave something double-counted. Dropped criteria are returned in `result.subsumed`, and the UI marks the chip rather than silently ignoring it.
+**Subsumption.** `IMPLICATIONS` maps a criterion to everything it presupposes. Spring Boot implies Java, a Master's implies a Bachelor's, CKA implies Kubernetes implies Docker. When both ends are selected, only the stronger one survives — otherwise "Spring Boot + Java" reads as 1-in-111,000 instead of 1-in-667. The closure is walked transitively, so a half-specified entry cannot leave something double-counted. Dropped criteria are returned in `result.subsumed`, and the UI marks the chip rather than silently ignoring it.
 
-Subsumed criteria are also barred from acting as correlation *givens*: they have already been folded into their implier, so letting them lift anything would make a redundant requirement look easier than the plain one.
+Education levels form a strict cumulative ladder for degree levels (`PhD → Master's → Bachelor's → High School`). However, vocational high school (`edu_vocational`) and associate degrees (`edu_associates`) are treated as parallel tracks to Bachelor's: both imply a high-school diploma, but neither subsumes nor is subsumed by a Bachelor's degree.
 
-**Disjunctive categories.** `DISJUNCTIVE_CATEGORIES` lists the categories whose members are alternatives rather than requirements — location, field of study, age bracket and education level. Selecting several means "any of these," so the engine collapses them into one synthetic criterion whose probability is the **union** of the branches. Two age brackets are a range, not a conjunction; "lisans veya ön lisans" unions to ~31% rather than multiplying to ~2%.
+Subsumed criteria are also barred from acting as correlation *givens*: they have already been folded into their implier, so letting them lift anything would make a redundant requirement look easier than the plain one. Additionally, duplicate selection IDs are deduped prior to calculation so malformed inputs or shared URLs cannot skew results.
+
+**Disjunctive categories.** `DISJUNCTIVE_CATEGORIES` lists the categories whose members are alternatives rather than requirements — location (`loc_`), field of study (`field_`), age brackets (`age_`), and education level (`edu_`). Selecting several means "any of these," so the engine collapses them into one synthetic criterion whose probability is the **union** of the branches. Two age brackets represent a range, not a conjunction; parallel education levels (e.g. "Lisans veya Ön Lisans") union to ~31% rather than multiplying down to ~2%.
 
 Group members lift their correlation targets only in proportion to their share of the union (`P(member) / P(union)`), which is the mixture model `P(t | a OR b) = w·P(t|a) + (1-w)·P(t|b)`. The collapse happens *after* lifts are applied, so a lift aimed at one branch is not lost.
 
@@ -109,9 +111,13 @@ Each requirement contributes a row showing the pool size before and after that r
 ## How the job posting parser works
 
 The parser lives in [`src/lib/parser.ts`](src/lib/parser.ts). Users can paste any raw job posting text, and the parser automatically extracts:
-1. **Criteria & Skills**: Matched via alias mappings (`ALIAS_MAP`) and label string search (e.g. "K8s" → `skill_kubernetes`, "Lisans" → `edu_bachelor`).
+1. **Criteria & Skills**: Matched via alias mappings (`ALIAS_MAP`) and label string search using whole-word regex tokenization (`containsWord`).
+   - Uses Unicode-aware lookarounds (`(?<![\p{L}\p{N}])` / `(?!(...))`) to avoid false-positive substring matches (e.g. matching "go" inside "good" or "c" inside "cat").
+   - Trailing asterisk stems (`*`) match Turkish inflectional suffixes (e.g. `mühendislik*` matching *mühendisliği*, *mühendisliğinde*).
+   - Special handling for symbol-heavy tech names (e.g. `C#`, `C++`, `.NET`, `Node.js`).
 2. **Years of Experience**: Extracted via Regex patterns (e.g. `5+ years`, `3-5 yıl`, `min 4 yıl tecrübe`).
-3. **Age Constraints**: Extracted via Regex patterns (e.g. `max 25 yaş`, `maximum age 28`).
+3. **Age Constraints**: Extracted via Regex patterns for minimum and maximum age limits (e.g. `max 25 yaş`, `min 18 yaş`, `under 30 years old`).
+4. **Prerequisite Subsumption**: Automatically filters out implied/redundant criteria (e.g., dropping Bachelor's if Master's was parsed, or Java if Spring Boot was parsed) using `filterSubsumedCriteria`.
 
 ---
 
@@ -145,9 +151,12 @@ To correct a number, edit it in place. To add a new criterion, add an entry and 
 
 ---
 
-## Bilingual UI
+## Bilingual UI & Engine Localization
 
-All UI strings live in `src/i18n/en.ts` and `src/i18n/tr.ts`. The default language is detected from `navigator.language`. A header toggle switches languages instantly. The criterion labels themselves are also bilingual (see `label: { en, tr }` on every criterion).
+All UI and engine strings live in `src/i18n/en.ts` and `src/i18n/tr.ts`. The default language is detected from `navigator.language`, and a header toggle switches languages instantly.
+
+- **Criteria Labels**: Every criterion defines bilingual labels (`label: { en, tr }`).
+- **Engine Localization**: The calculation core ([`src/lib/engine.ts`](src/lib/engine.ts)) accepts a `lang` parameter and uses `ENGINE_STRINGS` to localize synthetic disjunctive group labels (e.g., "Location: İstanbul OR Ankara" vs "Lokasyon: İstanbul VEYA Ankara"), waterfall breakdown labels, and contradiction warning messages.
 
 ---
 
