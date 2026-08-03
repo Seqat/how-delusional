@@ -373,7 +373,7 @@ export const MISC: Criterion[] = [
   { id: 'misc_own_vehicle',    label: { en: 'Owns a vehicle',     tr: 'Kendi aracı var' },     probability: 0.30, source: 'TÜİK — vehicle ownership per household est.', confidence: 'estimated' },
   { id: 'misc_no_military',    label: { en: 'No military obligation (TR, male)', tr: 'Askerlik yok (TR, erkek)' }, probability: 0.40, source: 'Estimate — TR male pop × completed/exempt share', confidence: 'estimated' },
   { id: 'misc_shift_work',     label: { en: 'Tolerates shift work', tr: 'Vardiyalı çalışmaya uygun' }, probability: 0.18, source: 'Estimate — share willing/able to do shifts', confidence: 'estimated' },
-  { id: 'misc_travel_50',      label: { en: 'Willing to travel ≥50% of time', tr: "Zamanın ≥%50'sinde seyahat" }, probability: 0.05, source: 'Estimate — sales/field workforce share', confidence: 'estimated' },
+  { id: 'misc_travel_50',      label: { en: 'Willing to travel ≥50% of time', tr: "Zamanının ≥%50'sinde seyahat" }, probability: 0.05, source: 'Estimate — sales/field workforce share', confidence: 'estimated' },
   { id: 'misc_relocate',       label: { en: 'Willing to relocate', tr: 'Taşınmaya hazır' }, probability: 0.08, source: 'Eurobarometer mobility intent', confidence: 'estimated' },
   { id: 'misc_no_smoker',      label: { en: 'Non-smoker',         tr: 'Sigara içmiyor' },       probability: 0.40, source: 'TÜİK — TR adult smoking rate (inverse)', confidence: 'measured' },
   { id: 'misc_married_ok',     label: { en: '"Married preferred" (parental leave exposure)', tr: '"Evli tercih edilir" (doğum izni riski)' }, probability: 0.55, source: 'TÜİK — share married 25–64 (proxy for the bias)', confidence: 'estimated' },

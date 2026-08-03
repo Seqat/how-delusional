@@ -1,13 +1,14 @@
 import type { Dict } from './en';
 
 export const tr: Dict = {
-  appTitle: 'Bu İş İlanı Ne Kadar Hayalserde?',
+  appTitle: 'Bu İş İlanı Ne Kadar Hayalperest?',
   appSubtitle: 'Şartları gir. Delüzyon Puanını al.',
-  tagline: 'İş ilanlarının ne kadar gerçek dışı olduğunu tahmin eden, satirik ama istatistikçe dürüst bir hesaplayıcı.',
+  tagline: 'İş ilanlarının ne kadar gerçek dışı olduğunu tahmin eden, satirik ama istatistiksel olarak dürüst bir hesaplayıcı.',
   langSwitch: 'EN',
   copyLink: 'Paylaşım linkini kopyala',
   copied: 'Kopyalandı!',
   reset: 'Sıfırla',
+  verdict_eyebrow: 'sonuç',
 
   group_education: 'Eğitim',
   group_field: 'Bölüm',
@@ -16,7 +17,7 @@ export const tr: Dict = {
   group_certs: 'Sertifikalar',
   group_age: 'Yaş aralığı',
   group_location: 'Konum',
-  group_misc: 'Diğer hayat/idari kısıtlar',
+  group_misc: 'Diğer yaşam/idari kısıtlar',
   group_experience: 'Deneyim (yıl)',
   experienceYears: 'Aranan deneyim yılı',
   ageMin: 'Minimum yaş (opsiyonel)',
@@ -71,7 +72,7 @@ export const tr: Dict = {
   export_card: 'Görsel Kartı Önizle',
   card_copied: 'Görsel kart panoya kopyalandı!',
   card_downloaded: 'Görsel kart indirildi!',
-  card_modal_title: 'Paylaşım Kartı Önizleme',
+  card_modal_title: 'Paylaşım Kartı Önizlemesi',
   card_modal_subtitle: 'Delüzyon Kartınızı indirmeden veya kopyalamadan önce inceleyin:',
   btn_copy_image: 'Panoya Kopyala',
   btn_download_image: 'PNG İndir',

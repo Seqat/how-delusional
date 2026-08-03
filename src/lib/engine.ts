@@ -87,6 +87,15 @@ const ENGINE_STRINGS = {
     },
     or: ' OR ',
     experience: (y: number) => `${y} years of experience`,
+    ageMinMaxContradiction: (min: number, max: number) =>
+      `Minimum age constraint (${min}) cannot be greater than maximum age constraint (${max}).`,
+    hardExperienceGate: (exp: number, maxAge: number, neededAge: number) =>
+      `Asking for ${exp} years of experience but capping age at ${maxAge} ` +
+      `requires starting this career at age ${neededAge - exp}. ` +
+      `The youngest anyone with that much experience can be is ${neededAge}.`,
+    softExperienceGate: (exp: number, maxAge: number, startAge: number) =>
+      `To have ${exp} years of experience by age ${maxAge}, ` +
+      `this person would have had to start at age ${startAge} — before finishing a bachelor's.`,
   },
   tr: {
     prefixes: {
@@ -97,8 +106,17 @@ const ENGINE_STRINGS = {
     },
     or: ' VEYA ',
     experience: (y: number) => `${y} yıl deneyim`,
+    ageMinMaxContradiction: (min: number, max: number) =>
+      `Minimum yaş şartı (${min}), maksimum yaş şartından (${max}) büyük olamaz.`,
+    hardExperienceGate: (exp: number, maxAge: number, neededAge: number) =>
+      `${exp} yıl deneyim isteyip yaşı maksimum ${maxAge} ile sınırlandırmak, ` +
+      `bu kariyerde çalışmaya ${neededAge - exp} yaşında başlamayı gerektirir. ` +
+      `Bu kadar deneyime sahip birinin olabileceği en küçük yaş ${neededAge}'dir.`,
+    softExperienceGate: (exp: number, maxAge: number, startAge: number) =>
+      `${maxAge} yaşına kadar ${exp} yıl deneyime sahip olmak için ` +
+      `bu kişinin ${startAge} yaşında — henüz lisans mezuniyeti öncesinde — çalışmaya başlamış olması gerekirdi.`,
   },
-} as const;
+};
 
 /**
  * Everything `id` transitively implies. The table is expected to be written
@@ -289,7 +307,7 @@ export function compute(input: EngineInput): EngineResult {
   if (input.ageMin > 0 && input.ageMax > 0 && input.ageMin > input.ageMax) {
     impossible = true;
     contradictions.push(
-      `Minimum age constraint (${input.ageMin}) cannot be greater than maximum age constraint (${input.ageMax}).`,
+      str.ageMinMaxContradiction(input.ageMin, input.ageMax),
     );
   }
 
@@ -315,9 +333,7 @@ export function compute(input: EngineInput): EngineResult {
       if (input.ageMax < neededAge) {
         impossible = true;
         contradictions.push(
-          `Asking for ${input.experienceYears} years of experience but capping age at ${input.ageMax} ` +
-            `requires starting this career at age ${neededAge - input.experienceYears}. ` +
-            `The youngest anyone with that much experience can be is ${neededAge}.`,
+          str.hardExperienceGate(input.experienceYears, input.ageMax, neededAge),
         );
       }
     }
@@ -328,8 +344,7 @@ export function compute(input: EngineInput): EngineResult {
       const startAge = input.ageMax - input.experienceYears;
       if (startAge < EXPERIENCE_REFERENCE.careerStartAge - 2) {
         contradictions.push(
-          `To have ${input.experienceYears} years of experience by age ${input.ageMax}, ` +
-            `this person would have had to start at age ${startAge} — before finishing a bachelor's.`,
+          str.softExperienceGate(input.experienceYears, input.ageMax, startAge),
         );
       }
     }

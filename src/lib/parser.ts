@@ -56,7 +56,7 @@ const ALIAS_MAP: Record<string, string[]> = {
   skill_git: ['git', 'github', 'gitlab'],
   skill_excel_adv: ['excel', 'pivot', 'vba'],
   skill_sap: ['sap'],
-  lang_en_b1: ['b1 english', 'b1 ingilizce', 'b1 ingilizce', 'orta seviye ingilizce', 'b1'],
+  lang_en_b1: ['b1 english', 'b1 ingilizce', 'orta seviye ingilizce', 'b1'],
   lang_en_b2: ['b2 english', 'b2 ingilizce', 'iyi seviye ingilizce', 'fluent english', 'akıcı ingilizce', 'b2'],
   lang_en_c1: ['c1 english', 'c1 ingilizce', 'ileri seviye ingilizce', 'excellent english', 'advanced english', 'c1'],
   lang_en_c2: ['c2 english', 'c2 ingilizce', 'native english', 'ana dili ingilizce', 'c2'],

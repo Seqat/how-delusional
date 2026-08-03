@@ -6,6 +6,7 @@ export const en = {
   copyLink: 'Copy share link',
   copied: 'Copied!',
   reset: 'Reset',
+  verdict_eyebrow: 'verdict',
 
   // Input panel groups
   group_education: 'Education',

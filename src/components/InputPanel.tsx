@@ -101,7 +101,7 @@ interface InputPanelProps {
   onSkillSearch: (s: string) => void;
   onReset: () => void;
   onSelectPreset: (preset: Preset) => void;
-  onParseText: (text: string) => void;
+  onParseText: (text: string) => number;
   /** subsumed criterion id -> label of the selection that already implies it. */
   subsumedBy: Map<string, string>;
 }
@@ -123,8 +123,8 @@ export function InputPanel(props: InputPanelProps): JSX.Element {
 
   const handleParse = () => {
     if (!pasteText.trim()) return;
-    onParseText(pasteText);
-    setParseNotice(t.paste_success(1));
+    const count = onParseText(pasteText);
+    setParseNotice(t.paste_success(count));
     setTimeout(() => {
       setParseNotice('');
       setShowPasteBox(false);

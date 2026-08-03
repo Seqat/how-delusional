@@ -68,7 +68,7 @@ export const PRESETS: Preset[] = [
     },
     description: {
       en: 'PhD in CS, PyTorch, C++, CUDA, 8 years experience, TOEFL 100+, age max 28.',
-      tr: 'Bilgisayarda Doktora, PyTorch, C++, CUDA, 8 yıl deneyim, TOEFL 100+, maks yaş 28.',
+      tr: 'Bilgisayar Bilimlerinde Doktora, PyTorch, C++, CUDA, 8 yıl deneyim, TOEFL 100+, maks yaş 28.',
     },
     selectedIds: [
       'edu_phd',

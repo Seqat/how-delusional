@@ -54,7 +54,7 @@ export function ResultPanel({ result, t, lang, onOpenModal }: Props): JSX.Elemen
       <div class="gauge-row">
         <Gauge value={delusionScore} color={v.color} label={t.delusion_label} />
         <div class="verdict">
-          <div class="verdict-eyebrow" style={{ color: v.color }}>— verdict —</div>
+          <div class="verdict-eyebrow" style={{ color: v.color }}>— {t.verdict_eyebrow} —</div>
           <div class="verdict-name" style={{ color: v.color }}>{verdictName}</div>
           <div class="verdict-desc">{verdictDesc}</div>
 

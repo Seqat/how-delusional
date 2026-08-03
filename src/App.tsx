@@ -84,7 +84,7 @@ export function App(): JSX.Element {
     setAgeMax(preset.ageMax);
   }, []);
 
-  const handleParseText = useCallback((text: string) => {
+  const handleParseText = useCallback((text: string): number => {
     const parsed = parseJobPosting(text);
     if (parsed.selectedIds.length > 0) {
       setSelected(new Set(parsed.selectedIds));
@@ -92,6 +92,13 @@ export function App(): JSX.Element {
     if (parsed.experienceYears > 0) setExperienceYears(parsed.experienceYears);
     if (parsed.ageMin > 0) setAgeMin(parsed.ageMin);
     if (parsed.ageMax > 0) setAgeMax(parsed.ageMax);
+
+    return (
+      parsed.selectedIds.length +
+      (parsed.experienceYears > 0 ? 1 : 0) +
+      (parsed.ageMin > 0 ? 1 : 0) +
+      (parsed.ageMax > 0 ? 1 : 0)
+    );
   }, []);
 
   // Build engine input.
